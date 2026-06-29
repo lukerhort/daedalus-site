@@ -1,52 +1,511 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Daedalus — Flight Computer</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daedalus — Custom Rocket Flight Computer</title>
+  <meta name="description" content="Daedalus is a custom rocket flight computer running scratch-written embedded firmware on a Teensy 4.1, validated through a SITL/HITL test pipeline." />
+  <link rel="icon" href="Photos/web/logo-180.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: system-ui, sans-serif;
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 2rem 1.5rem;
-      color: #1a1a1a;
-      line-height: 1.6;
+    :root {
+      --bg:        #070b11;
+      --bg-2:      #0b111a;
+      --panel:     #0e1622;
+      --panel-2:   #111c2b;
+      --line:      rgba(120, 170, 220, 0.10);
+      --line-2:    rgba(120, 170, 220, 0.18);
+      --ink:       #e8eef6;
+      --ink-soft:  #9fb0c4;
+      --ink-mute:  #5f7080;
+      --cyan:      #4ec3e0;
+      --cyan-dim:  #2b8aa3;
+      --amber:     #f0a64a;
+      --green:     #4fd197;
+      --radius:    14px;
+      --maxw:      1080px;
     }
 
-    header { margin-bottom: 3rem; }
-    h1 { font-size: 2rem; }
-    header p { color: #555; margin-top: 0.25rem; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    section { margin-bottom: 2rem; }
-    h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    html { scroll-behavior: smooth; }
 
-    a { color: #0066cc; }
+    body {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Blueprint grid backdrop */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      background:
+        linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 40px 40px,
+        linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 40px 40px,
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(78,195,224,0.10), transparent 70%),
+        var(--bg);
+      mask-image: radial-gradient(ellipse 120% 90% at 50% 0%, #000 55%, transparent 100%);
+    }
+
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+    a { color: var(--cyan); text-decoration: none; }
+
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+    /* ---- Nav ---- */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(12px);
+      background: rgba(7, 11, 17, 0.72);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner {
+      max-width: var(--maxw); margin: 0 auto; padding: 14px 24px;
+      display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 600; letter-spacing: 0.04em; }
+    .brand img { width: 30px; height: 30px; border-radius: 7px; filter: saturate(0.2) brightness(1.05); }
+    .brand span { font-size: 1.05rem; }
+    .nav-links { display: flex; gap: 26px; align-items: center; }
+    .nav-links a { color: var(--ink-soft); font-size: 0.9rem; font-weight: 500; transition: color .2s; }
+    .nav-links a:hover { color: var(--ink); }
+    .nav-cta {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+      border: 1px solid var(--line-2); padding: 7px 14px; border-radius: 8px;
+      color: var(--ink) !important; transition: all .2s;
+    }
+    .nav-cta:hover { border-color: var(--cyan); color: var(--cyan) !important; }
+    @media (max-width: 720px) { .nav-links a:not(.nav-cta) { display: none; } }
+
+    /* ---- Section scaffold ---- */
+    section { padding: 96px 0; position: relative; }
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+      letter-spacing: 0.18em; text-transform: uppercase; color: var(--cyan-dim);
+      display: flex; align-items: center; gap: 10px; margin-bottom: 18px;
+    }
+    .eyebrow::before { content: ""; width: 28px; height: 1px; background: var(--cyan-dim); }
+    h2.title { font-size: clamp(1.6rem, 3vw, 2.3rem); font-weight: 600; letter-spacing: -0.01em; line-height: 1.15; }
+    .lead { color: var(--ink-soft); max-width: 620px; margin-top: 14px; font-size: 1.05rem; }
+
+    /* ---- Hero ---- */
+    .hero { padding: 70px 0 80px; }
+    .hero-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px; align-items: center; }
+    @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; gap: 40px; } }
+
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 9px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+      border: 1px solid var(--line-2); background: rgba(79,209,151,0.06);
+      padding: 6px 13px; border-radius: 999px; color: var(--ink-soft); margin-bottom: 26px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(79,209,151,0.5); animation: pulse 2.4s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(79,209,151,0.45);} 70% { box-shadow: 0 0 0 9px rgba(79,209,151,0);} 100% { box-shadow: 0 0 0 0 rgba(79,209,151,0);} }
+
+    .hero h1 {
+      font-size: clamp(2.6rem, 6.5vw, 4.6rem); font-weight: 700;
+      letter-spacing: -0.03em; line-height: 0.98;
+      background: linear-gradient(180deg, #fff 0%, #b9cbe0 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero .sub { font-size: 1.15rem; color: var(--ink-soft); margin-top: 22px; max-width: 540px; }
+    .hero .sub strong { color: var(--ink); font-weight: 600; }
+
+    .btn-row { display: flex; gap: 14px; margin-top: 34px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 9px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 500;
+      padding: 12px 20px; border-radius: 10px; transition: all .2s; cursor: pointer;
+    }
+    .btn-primary { background: var(--cyan); color: #051018 !important; font-weight: 600; }
+    .btn-primary:hover { background: #6ad3ee; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(78,195,224,0.25); }
+    .btn-ghost { border: 1px solid var(--line-2); color: var(--ink) !important; }
+    .btn-ghost:hover { border-color: var(--cyan); color: var(--cyan) !important; transform: translateY(-2px); }
+
+    /* Hero logo plate */
+    .logo-plate {
+      position: relative; border: 1px solid var(--line-2); border-radius: var(--radius);
+      background: linear-gradient(160deg, var(--panel-2), var(--panel));
+      padding: 26px; overflow: hidden;
+    }
+    .logo-plate::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(115deg, transparent 40%, rgba(78,195,224,0.06) 50%, transparent 60%);
+    }
+    .logo-plate img { width: 100%; border-radius: 10px; display: block; }
+    .plate-tag {
+      display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem; color: var(--ink-mute); letter-spacing: 0.08em; margin-top: 16px;
+    }
+    .corner { position: absolute; width: 14px; height: 14px; border-color: var(--cyan-dim); }
+    .corner.tl { top: 10px; left: 10px; border-top: 1.5px solid; border-left: 1.5px solid; }
+    .corner.tr { top: 10px; right: 10px; border-top: 1.5px solid; border-right: 1.5px solid; }
+    .corner.bl { bottom: 10px; left: 10px; border-bottom: 1.5px solid; border-left: 1.5px solid; }
+    .corner.br { bottom: 10px; right: 10px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
+
+    /* ---- Stats strip ---- */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line);
+      border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+    .stat { background: var(--panel); padding: 26px 22px; }
+    .stat .num { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); }
+    .stat .num span { color: var(--cyan); }
+    .stat .lbl { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--ink-mute); margin-top: 6px; }
+
+    /* ---- Cards ---- */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    @media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px) { .grid-4 { grid-template-columns: 1fr; } }
+
+    .card {
+      background: linear-gradient(160deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--line); border-radius: var(--radius); padding: 24px;
+      transition: border-color .25s, transform .25s;
+    }
+    .card:hover { border-color: var(--line-2); transform: translateY(-3px); }
+    .card .k { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--cyan-dim);
+      letter-spacing: 0.1em; text-transform: uppercase; }
+    .card h3 { font-size: 1.05rem; font-weight: 600; margin: 10px 0 6px; }
+    .card p { color: var(--ink-soft); font-size: 0.94rem; }
+    .spec-val { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--ink-mute);
+      margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+    /* ---- Roadmap ---- */
+    .road { display: flex; flex-direction: column; gap: 0; margin-top: 14px; }
+    .phase { display: grid; grid-template-columns: 130px 1fr; gap: 24px; padding: 22px 0;
+      border-top: 1px solid var(--line); position: relative; }
+    .phase:last-child { border-bottom: 1px solid var(--line); }
+    @media (max-width: 620px) { .phase { grid-template-columns: 1fr; gap: 8px; } }
+    .phase .ph-id { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--ink-mute);
+      display: flex; align-items: flex-start; gap: 10px; }
+    .badge { font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; padding: 3px 8px; border-radius: 6px;
+      letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+    .b-now { background: rgba(78,195,224,0.14); color: var(--cyan); border: 1px solid rgba(78,195,224,0.3); }
+    .b-done { background: rgba(79,209,151,0.12); color: var(--green); border: 1px solid rgba(79,209,151,0.25); }
+    .b-next { background: rgba(240,166,74,0.10); color: var(--amber); border: 1px solid rgba(240,166,74,0.22); }
+    .b-plan { background: transparent; color: var(--ink-mute); border: 1px solid var(--line-2); }
+    .phase h4 { font-size: 1.05rem; font-weight: 600; }
+    .phase p { color: var(--ink-soft); font-size: 0.94rem; margin-top: 4px; }
+
+    /* ---- Showcase photo ---- */
+    .showcase { display: grid; grid-template-columns: 0.95fr 1.05fr; gap: 48px; align-items: center; }
+    @media (max-width: 860px) { .showcase { grid-template-columns: 1fr; gap: 30px; } }
+    .figure {
+      position: relative; border: 1px solid var(--line-2); border-radius: var(--radius);
+      padding: 12px; background: linear-gradient(160deg, var(--panel-2), var(--panel));
+    }
+    .figure img { width: 100%; border-radius: 9px; display: block; }
+    .figcaption {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--ink-mute);
+      padding: 12px 6px 4px; letter-spacing: 0.04em;
+    }
+    .figcaption .tag { color: var(--cyan-dim); }
+    .anno-list { list-style: none; margin-top: 22px; }
+    .anno-list li { display: flex; gap: 14px; padding: 13px 0; border-top: 1px solid var(--line); font-size: 0.95rem; color: var(--ink-soft); }
+    .anno-list li:first-child { border-top: none; }
+    .anno-list .pin { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--cyan);
+      border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; height: fit-content; white-space: nowrap; }
+    .anno-list strong { color: var(--ink); font-weight: 600; }
+
+    /* ---- Pipeline ---- */
+    .pipe { display: flex; align-items: stretch; gap: 0; margin-top: 26px; flex-wrap: wrap; }
+    .pipe-node { flex: 1; min-width: 150px; background: var(--panel); border: 1px solid var(--line);
+      padding: 18px; border-radius: 12px; position: relative; }
+    .pipe-arrow { display: flex; align-items: center; color: var(--ink-mute); padding: 0 6px; font-size: 1.2rem; }
+    @media (max-width: 720px) { .pipe-arrow { transform: rotate(90deg); width: 100%; justify-content: center; padding: 6px 0; } }
+    .pipe-node .pk { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--cyan-dim); letter-spacing: 0.08em; }
+    .pipe-node h5 { font-size: 0.98rem; margin: 8px 0 4px; font-weight: 600; }
+    .pipe-node p { font-size: 0.84rem; color: var(--ink-soft); }
+
+    /* ---- Footer ---- */
+    footer { border-top: 1px solid var(--line); padding: 56px 0 70px; margin-top: 40px; }
+    .foot-grid { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; flex-wrap: wrap; }
+    .foot-brand { display: flex; align-items: center; gap: 12px; }
+    .foot-brand img { width: 38px; height: 38px; border-radius: 8px; filter: saturate(0.2) brightness(1.05); }
+    .foot-links { display: flex; gap: 30px; flex-wrap: wrap; }
+    .foot-col h6 { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; text-transform: uppercase;
+      letter-spacing: 0.12em; color: var(--ink-mute); margin-bottom: 12px; }
+    .foot-col a { display: block; color: var(--ink-soft); font-size: 0.9rem; margin-bottom: 8px; transition: color .2s; }
+    .foot-col a:hover { color: var(--cyan); }
+    .colophon { margin-top: 40px; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem;
+      color: var(--ink-mute); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+    /* reveal animation */
+    .reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s ease, transform .7s ease; }
+    .reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; } .dot { animation: none; } }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Daedalus</h1>
-    <p>Custom rocket flight computer &amp; test infrastructure</p>
+
+  <nav>
+    <div class="nav-inner">
+      <div class="brand">
+        <img src="Photos/web/logo-180.png" alt="Daedalus logo" />
+        <span>DAEDALUS</span>
+      </div>
+      <div class="nav-links">
+        <a href="#about">Overview</a>
+        <a href="#status">Status</a>
+        <a href="#hardware">Hardware</a>
+        <a href="#software">Software</a>
+        <a class="nav-cta" href="https://github.com/YOUR_USERNAME/daedalus" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <div class="status-pill"><span class="dot"></span> PHASE 1 · HARDWARE BRING-UP · ACTIVE</div>
+        <h1>Daedalus</h1>
+        <p class="sub">A <strong>custom rocket flight computer</strong> built from the board up — scratch-written embedded firmware on a Teensy 4.1, designed to be validated through a software- and hardware-in-the-loop test pipeline before it ever leaves the pad.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="https://github.com/YOUR_USERNAME/daedalus" target="_blank" rel="noopener">View source ↗</a>
+          <a class="btn btn-ghost" href="#status">Project status</a>
+        </div>
+      </div>
+      <div class="logo-plate">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+        <img src="Photos/web/daedalus-logo.png" alt="Daedalus rocket emblem" />
+        <div class="plate-tag"><span>EMBLEM · REV 1</span><span>AVIONICS / GNC</span></div>
+      </div>
+    </div>
   </header>
 
-  <main>
-    <section id="about">
-      <h2>About</h2>
-      <p>Scratch-written embedded flight software, validated by a SITL/HITL test pipeline, proven on a real flight.</p>
-    </section>
+  <!-- STATS -->
+  <div class="wrap reveal">
+    <div class="stats">
+      <div class="stat"><div class="num">600<span> MHz</span></div><div class="lbl">Cortex-M7 flight CPU</div></div>
+      <div class="stat"><div class="num">9<span>-DoF</span></div><div class="lbl">Inertial sensing</div></div>
+      <div class="stat"><div class="num">100<span>%</span></div><div class="lbl">Firmware from scratch</div></div>
+      <div class="stat"><div class="num">SITL<span>+HITL</span></div><div class="lbl">Test pipeline</div></div>
+    </div>
+  </div>
 
-    <section id="hardware">
-      <h2>Hardware</h2>
-      <p>Teensy 4.1 &middot; ICM-20948 IMU &middot; BMP390 &middot; NEO-M9N GPS</p>
-    </section>
+  <!-- ABOUT -->
+  <section id="about">
+    <div class="wrap reveal">
+      <div class="eyebrow">Overview</div>
+      <h2 class="title">An avionics stack engineered the way flight hardware should be.</h2>
+      <p class="lead">Daedalus is a personal R&amp;D project to design, build, and qualify a rocket flight computer end-to-end — the printed circuit, the sensor suite, the embedded flight software, and the test infrastructure that proves it works. The goal isn't just a board that boots; it's a system whose behavior is verified in simulation and on the bench before any real flight.</p>
+      <div class="grid-2" style="margin-top:34px;">
+        <div class="card">
+          <div class="k">Philosophy</div>
+          <h3>Test-driven flight code</h3>
+          <p>Every guidance, navigation &amp; control path is exercised in a simulated environment first, so the firmware that flies is the firmware that's already been proven against thousands of synthetic trajectories.</p>
+        </div>
+        <div class="card">
+          <div class="k">Scope</div>
+          <h3>Full-stack, board to launch</h3>
+          <p>Sensor drivers, state estimation, flight state machine, data logging, and a ground-test harness — all written from scratch in C++ on bare-metal Teensy, with no flight-controller framework underneath.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-    <section id="links">
-      <h2>Links</h2>
-      <a href="https://github.com/YOUR_USERNAME/daedalus">GitHub repo &rarr;</a>
-    </section>
-  </main>
+  <!-- STATUS / ROADMAP -->
+  <section id="status" style="background: linear-gradient(180deg, transparent, rgba(78,195,224,0.025), transparent);">
+    <div class="wrap reveal">
+      <div class="eyebrow">Current state</div>
+      <h2 class="title">Where the project stands today</h2>
+      <p class="lead">Daedalus is in <strong style="color:var(--cyan)">Phase 1 — hardware bring-up</strong>. The core compute and the barometric sensor are alive on the bench; the next milestones build the full sensor suite and the simulation harness around it.</p>
+
+      <div class="road">
+        <div class="phase">
+          <div class="ph-id"><span class="badge b-now">In&nbsp;progress</span></div>
+          <div>
+            <h4>Phase 1 — Hardware bring-up</h4>
+            <p>Teensy 4.1 running on the breadboard with a BMP384 barometric pressure sensor wired over I²C. Validating clocks, power, bus communication, and clean sensor reads as the foundation for everything above it.</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-id"><span class="badge b-next">Next</span></div>
+          <div>
+            <h4>Phase 2 — Full sensor suite &amp; state estimation</h4>
+            <p>Integrate the ICM-20948 IMU and NEO-M9N GPS, then fuse barometric altitude, inertial, and position data into a real-time state estimator for attitude and altitude.</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-id"><span class="badge b-plan">Planned</span></div>
+          <div>
+            <h4>Phase 3 — SITL / HITL test pipeline</h4>
+            <p>Stand up software-in-the-loop simulation of full flights, then hardware-in-the-loop replay on the real board to catch timing and integration faults the simulator can't.</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="ph-id"><span class="badge b-plan">Planned</span></div>
+          <div>
+            <h4>Phase 4 — Ground test &amp; first flight</h4>
+            <p>Custom PCB, vibration and power-cycle bench testing, static rehearsals, and a maiden flight with full telemetry capture for post-flight reconstruction.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HARDWARE -->
+  <section id="hardware">
+    <div class="wrap reveal">
+      <div class="eyebrow">Hardware</div>
+      <h2 class="title">The flight stack</h2>
+      <p class="lead">A compact, high-rate avionics package chosen for deterministic timing and proven aerospace-grade sensing.</p>
+      <div class="grid-4" style="margin-top:34px;">
+        <div class="card">
+          <div class="k">Compute</div>
+          <h3>Teensy 4.1</h3>
+          <p>600 MHz ARM Cortex-M7 — the brain running the bare-metal flight firmware.</p>
+          <div class="spec-val">MCU · IMXRT1062</div>
+        </div>
+        <div class="card">
+          <div class="k">Inertial</div>
+          <h3>ICM-20948</h3>
+          <p>9-DoF IMU: 3-axis gyro, accelerometer &amp; magnetometer for attitude.</p>
+          <div class="spec-val">9-DoF · SPI/I²C</div>
+        </div>
+        <div class="card">
+          <div class="k">Barometric</div>
+          <h3>BMP384</h3>
+          <p>High-resolution pressure sensor for altitude and apogee detection.</p>
+          <div class="spec-val">BARO · I²C</div>
+        </div>
+        <div class="card">
+          <div class="k">Position</div>
+          <h3>NEO-M9N</h3>
+          <p>Multi-band GNSS receiver for ground-truth position and recovery.</p>
+          <div class="spec-val">GPS · u-blox</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SHOWCASE PHOTO -->
+  <section id="lab" style="padding-top:30px;">
+    <div class="wrap reveal">
+      <div class="eyebrow">From the bench</div>
+      <h2 class="title" style="margin-bottom:36px;">Phase 1, captured</h2>
+      <div class="showcase">
+        <div class="figure">
+          <img src="Photos/web/phase1-breadboard.jpg" alt="Teensy 4.1 on a breadboard with a BMP384 barometric sensor connected over jumper wires, on a blueprint mat" />
+          <div class="figcaption"><span class="tag">FIG. 01 — FIRST POWER-ON</span><span>BREADBOARD · I²C</span></div>
+        </div>
+        <div>
+          <h3 style="font-size:1.25rem;font-weight:600;">First light on the bench</h3>
+          <p class="lead" style="margin-top:12px;">The very first Daedalus build: a Teensy 4.1 and a BMP384 barometric sensor talking over I²C, wired up on a breadboard atop a blueprint mat. Not glamorous — but this is where every flight computer earns its trust, one clean sensor read at a time.</p>
+          <ul class="anno-list">
+            <li><span class="pin">A</span><span><strong>Teensy 4.1</strong> — the 600 MHz flight CPU, powered and enumerating its peripherals.</span></li>
+            <li><span class="pin">B</span><span><strong>BMP384 barometer</strong> — pressure sensor on the SparkFun breakout, returning live altitude data.</span></li>
+            <li><span class="pin">C</span><span><strong>I²C link</strong> — jumper-wired bus carrying sensor traffic to the MCU for validation.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOFTWARE -->
+  <section id="software" style="background: linear-gradient(180deg, transparent, rgba(240,166,74,0.02), transparent);">
+    <div class="wrap reveal">
+      <div class="eyebrow">Software &amp; validation</div>
+      <h2 class="title">Firmware that's proven before it flies</h2>
+      <p class="lead">The flight software is written from scratch in C++ and validated through a layered test pipeline — so failures surface on a laptop or a bench, never at apogee.</p>
+
+      <div class="pipe">
+        <div class="pipe-node">
+          <div class="pk">01 · MODEL</div>
+          <h5>Flight simulation</h5>
+          <p>Synthetic trajectories &amp; sensor data drive the firmware through full mission profiles.</p>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pk">02 · SITL</div>
+          <h5>Software-in-the-loop</h5>
+          <p>The exact flight code runs against the simulator — logic verified end-to-end.</p>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pk">03 · HITL</div>
+          <h5>Hardware-in-the-loop</h5>
+          <p>Real board, simulated world — catches timing &amp; integration faults pre-flight.</p>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pk">04 · FLIGHT</div>
+          <h5>Live flight + telemetry</h5>
+          <p>On-board logging captures every state for post-flight reconstruction.</p>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:30px;">
+        <div class="card">
+          <div class="k">On-board</div>
+          <h3>Bare-metal flight firmware</h3>
+          <p>Sensor drivers, a deterministic main loop, a flight state machine (boot → armed → boost → coast → apogee → descent → recovery), and high-rate data logging — written directly against the hardware in C++.</p>
+        </div>
+        <div class="card">
+          <div class="k">Ground</div>
+          <h3>Test &amp; analysis harness</h3>
+          <p>Tooling to drive simulations, replay recorded flights, and visualize estimator output — turning every run into data that hardens the next iteration.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <div class="foot-brand">
+            <img src="Photos/web/logo-180.png" alt="Daedalus logo" />
+            <div>
+              <div style="font-weight:600;letter-spacing:0.04em;">DAEDALUS</div>
+              <div class="mono" style="font-size:0.74rem;color:var(--ink-mute);">Custom rocket flight computer</div>
+            </div>
+          </div>
+          <p class="lead" style="font-size:0.9rem;max-width:340px;margin-top:18px;">An independent avionics &amp; flight-software R&amp;D project. Built, broken, and rebuilt on the bench.</p>
+        </div>
+        <div class="foot-links">
+          <div class="foot-col">
+            <h6>Project</h6>
+            <a href="#about">Overview</a>
+            <a href="#status">Status</a>
+            <a href="#hardware">Hardware</a>
+            <a href="#software">Software</a>
+          </div>
+          <div class="foot-col">
+            <h6>Connect</h6>
+            <a href="https://github.com/YOUR_USERNAME/daedalus" target="_blank" rel="noopener">GitHub ↗</a>
+            <a href="mailto:lukerhorton4@gmail.com">Email ↗</a>
+          </div>
+        </div>
+      </div>
+      <div class="colophon">
+        <span>© 2026 DAEDALUS · L. HORTON</span>
+        <span>AVIONICS / GNC · STATUS: PHASE 1 ACTIVE</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  </script>
 </body>
 </html>
